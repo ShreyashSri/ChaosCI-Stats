@@ -1,0 +1,46 @@
+# Binaries
+/chaosci-webhook
+/chaosci-worker
+/chaosci-api
+/api
+/webhook
+/worker
+
+# Go
+/bin/
+/pkg/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+
+# Test output
+*.test
+*.out
+
+# Frontend dependencies and build output
+node_modules/
+.svelte-kit/
+build/
+dist/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
