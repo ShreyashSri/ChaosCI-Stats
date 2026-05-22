@@ -1,0 +1,9 @@
+# Minimal Litmus values
+portal:
+  server:
+    replicas: 1
+  frontend:
+    replicas: 1
+
+chaosOperator:
+  replicas: 1

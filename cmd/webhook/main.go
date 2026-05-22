@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ShreyashSri/ChaosCI-Stats/internal/github"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/naas"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/store"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -59,6 +60,11 @@ func main() {
 
 	querier := store.New(db)
 
+	ghClient, err := github.NewClient()
+	if err != nil {
+		log.Printf("Warning: failed to init github client: %v", err)
+	}
+
 	http.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			naasError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -88,20 +94,35 @@ func main() {
 			return
 		}
 
-		username := strings.Split(payload.PullRequest.Head.Repo.FullName, "/")[0]
-		shaShort := payload.PullRequest.Head.Sha
-		if len(shaShort) > 7 {
-			shaShort = shaShort[:7]
+		repoFullName := payload.PullRequest.Head.Repo.FullName
+		parts := strings.Split(repoFullName, "/")
+		repoOwner, repoName := parts[0], parts[0]
+		if len(parts) > 1 {
+			repoName = parts[1]
 		}
-		runID := fmt.Sprintf("%s-%s", username, shaShort)
+		
+		runIDData := fmt.Sprintf("%s%s%d%s", repoOwner, repoName, payload.PullRequest.Number, payload.PullRequest.Head.Sha)
+		hash := sha256.Sum256([]byte(runIDData))
+		runID := hex.EncodeToString(hash[:])[:8]
+
+		var checkID sql.NullInt64
+		if ghClient != nil {
+			id, err := ghClient.CreateCheckRun(context.Background(), repoFullName, payload.PullRequest.Head.Sha)
+			if err != nil {
+				log.Printf("Failed to create check run: %v", err)
+			} else {
+				checkID = sql.NullInt64{Int64: id, Valid: true}
+			}
+		}
 
 		_, err = querier.CreateRun(context.Background(), store.CreateRunParams{
 			ID:        runID,
-			Repo:      payload.PullRequest.Head.Repo.FullName,
+			Repo:      repoFullName,
 			PrNumber:  int32(payload.PullRequest.Number),
 			CommitSha: payload.PullRequest.Head.Sha,
 			Engine:    "chaosmesh",
 			Status:    "pending",
+			CheckID:   checkID,
 		})
 
 		if err != nil {

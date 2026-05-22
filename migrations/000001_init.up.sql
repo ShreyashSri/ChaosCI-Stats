@@ -5,6 +5,7 @@ CREATE TABLE runs (
     commit_sha  TEXT NOT NULL,
     engine      TEXT NOT NULL CHECK (engine IN ('chaosmesh','litmus')),
     status      TEXT NOT NULL DEFAULT 'pending',
+    check_id    BIGINT,
     created_at  TIMESTAMPTZ DEFAULT now(),
     finished_at TIMESTAMPTZ
 );

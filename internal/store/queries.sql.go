@@ -79,18 +79,19 @@ func (q *Queries) CreateExperiment(ctx context.Context, arg CreateExperimentPara
 }
 
 const createRun = `-- name: CreateRun :one
-INSERT INTO runs (id, repo, pr_number, commit_sha, engine, status)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, repo, pr_number, commit_sha, engine, status, created_at, finished_at
+INSERT INTO runs (id, repo, pr_number, commit_sha, engine, status, check_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, repo, pr_number, commit_sha, engine, status, check_id, created_at, finished_at
 `
 
 type CreateRunParams struct {
-	ID        string `json:"id"`
-	Repo      string `json:"repo"`
-	PrNumber  int32  `json:"pr_number"`
-	CommitSha string `json:"commit_sha"`
-	Engine    string `json:"engine"`
-	Status    string `json:"status"`
+	ID        string        `json:"id"`
+	Repo      string        `json:"repo"`
+	PrNumber  int32         `json:"pr_number"`
+	CommitSha string        `json:"commit_sha"`
+	Engine    string        `json:"engine"`
+	Status    string        `json:"status"`
+	CheckID   sql.NullInt64 `json:"check_id"`
 }
 
 func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, error) {
@@ -101,6 +102,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		arg.CommitSha,
 		arg.Engine,
 		arg.Status,
+		arg.CheckID,
 	)
 	var i Run
 	err := row.Scan(
@@ -110,6 +112,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.CommitSha,
 		&i.Engine,
 		&i.Status,
+		&i.CheckID,
 		&i.CreatedAt,
 		&i.FinishedAt,
 	)
@@ -187,7 +190,7 @@ func (q *Queries) GetExperimentsForRun(ctx context.Context, runID sql.NullString
 }
 
 const getPendingRuns = `-- name: GetPendingRuns :many
-SELECT id, repo, pr_number, commit_sha, engine, status, created_at, finished_at FROM runs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10
+SELECT id, repo, pr_number, commit_sha, engine, status, check_id, created_at, finished_at FROM runs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10
 `
 
 func (q *Queries) GetPendingRuns(ctx context.Context) ([]Run, error) {
@@ -206,6 +209,7 @@ func (q *Queries) GetPendingRuns(ctx context.Context) ([]Run, error) {
 			&i.CommitSha,
 			&i.Engine,
 			&i.Status,
+			&i.CheckID,
 			&i.CreatedAt,
 			&i.FinishedAt,
 		); err != nil {
@@ -223,7 +227,7 @@ func (q *Queries) GetPendingRuns(ctx context.Context) ([]Run, error) {
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, repo, pr_number, commit_sha, engine, status, created_at, finished_at FROM runs WHERE id = $1
+SELECT id, repo, pr_number, commit_sha, engine, status, check_id, created_at, finished_at FROM runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -236,6 +240,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.CommitSha,
 		&i.Engine,
 		&i.Status,
+		&i.CheckID,
 		&i.CreatedAt,
 		&i.FinishedAt,
 	)
@@ -243,7 +248,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 }
 
 const listAllRuns = `-- name: ListAllRuns :many
-SELECT id, repo, pr_number, commit_sha, engine, status, created_at, finished_at FROM runs ORDER BY created_at DESC LIMIT 100
+SELECT id, repo, pr_number, commit_sha, engine, status, check_id, created_at, finished_at FROM runs ORDER BY created_at DESC LIMIT 100
 `
 
 func (q *Queries) ListAllRuns(ctx context.Context) ([]Run, error) {
@@ -262,6 +267,7 @@ func (q *Queries) ListAllRuns(ctx context.Context) ([]Run, error) {
 			&i.CommitSha,
 			&i.Engine,
 			&i.Status,
+			&i.CheckID,
 			&i.CreatedAt,
 			&i.FinishedAt,
 		); err != nil {
@@ -317,7 +323,7 @@ const updateRunStatus = `-- name: UpdateRunStatus :one
 UPDATE runs
 SET status = $2, finished_at = $3
 WHERE id = $1
-RETURNING id, repo, pr_number, commit_sha, engine, status, created_at, finished_at
+RETURNING id, repo, pr_number, commit_sha, engine, status, check_id, created_at, finished_at
 `
 
 type UpdateRunStatusParams struct {
@@ -336,6 +342,7 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, arg UpdateRunStatusParams
 		&i.CommitSha,
 		&i.Engine,
 		&i.Status,
+		&i.CheckID,
 		&i.CreatedAt,
 		&i.FinishedAt,
 	)

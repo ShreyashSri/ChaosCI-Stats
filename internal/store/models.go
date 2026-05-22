@@ -29,12 +29,13 @@ type Experiment struct {
 }
 
 type Run struct {
-	ID         string       `json:"id"`
-	Repo       string       `json:"repo"`
-	PrNumber   int32        `json:"pr_number"`
-	CommitSha  string       `json:"commit_sha"`
-	Engine     string       `json:"engine"`
-	Status     string       `json:"status"`
-	CreatedAt  sql.NullTime `json:"created_at"`
-	FinishedAt sql.NullTime `json:"finished_at"`
+	ID         string        `json:"id"`
+	Repo       string        `json:"repo"`
+	PrNumber   int32         `json:"pr_number"`
+	CommitSha  string        `json:"commit_sha"`
+	Engine     string        `json:"engine"`
+	Status     string        `json:"status"`
+	CheckID    sql.NullInt64 `json:"check_id"`
+	CreatedAt  sql.NullTime  `json:"created_at"`
+	FinishedAt sql.NullTime  `json:"finished_at"`
 }

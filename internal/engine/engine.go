@@ -13,7 +13,7 @@ type Result struct {
 }
 
 type ChaosEngine interface {
-	Apply(ctx context.Context, exp store.Experiment) error
-	Watch(ctx context.Context, exp store.Experiment) (<-chan Result, error)
-	Cleanup(ctx context.Context, exp store.Experiment) error
+	Apply(ctx context.Context, exp store.Experiment, yamlData []byte) error
+	Watch(ctx context.Context, exp store.Experiment, yamlData []byte) (<-chan Result, error)
+	Cleanup(ctx context.Context, exp store.Experiment, yamlData []byte) error
 }

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaosci-worker
+  namespace: chaosci-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaosci-worker
+  template:
+    metadata:
+      labels:
+        app: chaosci-worker
+    spec:
+      serviceAccountName: chaosci-worker
+      containers:
+      - name: worker
+        image: chaosci/worker:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DATABASE_URL
+          value: "postgres://chaos:password@postgres:5432/chaosci?sslmode=disable"
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: chaosci-secrets
+              key: GITHUB_APP_ID
+        - name: GITHUB_APP_PRIVATE_KEY_PATH
+          value: "/etc/secrets/github-app.pem"
+        volumeMounts:
+        - name: secrets
+          mountPath: /etc/secrets
+          readOnly: true
+      volumes:
+      - name: secrets
+        secret:
+          secretName: chaosci-secrets

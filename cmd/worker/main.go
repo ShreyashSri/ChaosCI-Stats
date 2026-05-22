@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ShreyashSri/ChaosCI-Stats/internal/config"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/engine"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/engine/chaosmesh"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/engine/litmus"
+	"github.com/ShreyashSri/ChaosCI-Stats/internal/github"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/queue"
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/store"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -40,6 +42,73 @@ func main() {
 	cmEngine := chaosmesh.NewAdapter(k8sClient)
 	litmusEngine := litmus.NewAdapter(k8sClient)
 
+	ghClient, err := github.NewClient()
+	if err != nil {
+		log.Printf("Warning: failed to init github client: %v", err)
+	}
+
+	runExperiment := func(ctx context.Context, activeEngine engine.ChaosEngine, run store.Run, expConfig config.Experiment, kind string) bool {
+		exp, err := querier.CreateExperiment(ctx, store.CreateExperimentParams{
+			RunID:  sql.NullString{String: run.ID, Valid: true},
+			Name:   expConfig.Name,
+			Kind:   kind,
+			Type:   expConfig.Type,
+			Status: "pending",
+		})
+		if err != nil {
+			log.Printf("Failed to create experiment in DB: %v", err)
+			return false
+		}
+
+		var yamlData []byte
+		if ghClient != nil {
+			yamlData, err = ghClient.GetFileContent(ctx, run.Repo, run.CommitSha, expConfig.File)
+			if err != nil {
+				log.Printf("Failed to fetch file %s: %v", expConfig.File, err)
+				return false
+			}
+		}
+
+		err = activeEngine.Apply(ctx, exp, yamlData)
+		if err != nil {
+			log.Printf("Failed to apply experiment: %v", err)
+			return false
+		}
+
+		ch, err := activeEngine.Watch(ctx, exp, yamlData)
+		if err != nil {
+			log.Printf("Failed to watch experiment: %v", err)
+			return false
+		}
+
+		success := true
+		for res := range ch {
+			log.Printf("Run %s | Exp %d status: %s", run.ID, exp.ID, res.Status)
+
+			if res.Status != "success" && res.Status != "pending" && res.Status != "running" {
+				success = false
+			}
+
+			now := sql.NullTime{Time: time.Now(), Valid: true}
+			_, _ = querier.UpdateExperimentStatus(ctx, store.UpdateExperimentStatusParams{
+				ID:         exp.ID,
+				Status:     res.Status,
+				StartedAt:  now,
+				FinishedAt: now,
+			})
+
+			_, _ = querier.CreateEvent(ctx, store.CreateEventParams{
+				RunID:        sql.NullString{String: run.ID, Valid: true},
+				ExperimentID: sql.NullInt64{Int64: exp.ID, Valid: true},
+				Level:        sql.NullString{String: "info", Valid: true},
+				Message:      sql.NullString{String: res.Message, Valid: true},
+			})
+		}
+
+		_ = activeEngine.Cleanup(ctx, exp, yamlData)
+		return success
+	}
+
 	handler := func(ctx context.Context, runID string) error {
 		log.Printf("Worker processing run %s", runID)
 
@@ -59,64 +128,58 @@ func main() {
 			return fmt.Errorf("unknown engine type: %s", run.Engine)
 		}
 
-		exp, err := querier.CreateExperiment(ctx, store.CreateExperimentParams{
-			RunID:  sql.NullString{String: runID, Valid: true},
-			Name:   "real-experiment",
-			Kind:   "essential",
-			Type:   "pod-kill",
-			Status: "pending",
-		})
-		if err != nil {
-			return err
-		}
-
-		err = activeEngine.Apply(ctx, exp)
-		if err != nil {
-			log.Printf("Failed to apply experiment: %v", err)
-			return err
-		}
-
-		ch, err := activeEngine.Watch(ctx, exp)
-		if err != nil {
-			log.Printf("Failed to watch experiment: %v", err)
-			return err
-		}
-
-		for res := range ch {
-			log.Printf("Run %s | Exp %d status: %s", runID, exp.ID, res.Status)
-
-			now := sql.NullTime{Time: time.Now(), Valid: true}
-			_, err = querier.UpdateExperimentStatus(ctx, store.UpdateExperimentStatusParams{
-				ID:         exp.ID,
-				Status:     res.Status,
-				StartedAt:  now,
-				FinishedAt: now,
-			})
+		var configYAML []byte
+		if ghClient != nil {
+			configYAML, err = ghClient.GetFileContent(ctx, run.Repo, run.CommitSha, "chaos.yaml")
 			if err != nil {
-				log.Printf("Failed to update experiment: %v", err)
-			}
-
-			_, err = querier.CreateEvent(ctx, store.CreateEventParams{
-				RunID:        sql.NullString{String: runID, Valid: true},
-				ExperimentID: sql.NullInt64{Int64: exp.ID, Valid: true},
-				Level:        sql.NullString{String: "info", Valid: true},
-				Message:      sql.NullString{String: res.Message, Valid: true},
-			})
-			if err != nil {
-				log.Printf("Failed to create event: %v", err)
+				log.Printf("Failed to fetch chaos.yaml: %v", err)
+				if run.CheckID.Valid {
+					_ = ghClient.UpdateCheckRun(ctx, run.Repo, run.CheckID.Int64, "completed", "failure", "Missing chaos.yaml")
+				}
+				return err
 			}
 		}
 
-		_ = activeEngine.Cleanup(ctx, exp)
+		cfg, err := config.ParseConfig(configYAML)
+		if err != nil {
+			log.Printf("Failed to parse config: %v", err)
+			if ghClient != nil && run.CheckID.Valid {
+				_ = ghClient.UpdateCheckRun(ctx, run.Repo, run.CheckID.Int64, "completed", "failure", "Invalid chaos.yaml")
+			}
+			return err
+		}
+
+		hasEssentialFailure := false
+		for _, e := range cfg.Essential {
+			if !runExperiment(ctx, activeEngine, run, e, "essential") {
+				hasEssentialFailure = true
+			}
+		}
+
+		conclusion := "success"
+		if hasEssentialFailure {
+			conclusion = "action_required"
+		}
+
+		if ghClient != nil && run.CheckID.Valid {
+			_ = ghClient.UpdateCheckRun(ctx, run.Repo, run.CheckID.Int64, "completed", conclusion, "Chaos tests completed.")
+		}
 
 		_, err = querier.UpdateRunStatus(ctx, store.UpdateRunStatusParams{
 			ID:         runID,
-			Status:     "success",
+			Status:     conclusion,
 			FinishedAt: sql.NullTime{Time: time.Now(), Valid: true},
 		})
 
-		log.Printf("Run %s completed successfully", runID)
-		return err
+		go func() {
+			bgCtx := context.Background()
+			for _, e := range cfg.Extended {
+				runExperiment(bgCtx, activeEngine, run, e, "extended")
+			}
+		}()
+
+		log.Printf("Run %s completed essential tests with conclusion %s", runID, conclusion)
+		return nil
 	}
 
 	pool := queue.NewWorkerPool(querier, 3, handler)

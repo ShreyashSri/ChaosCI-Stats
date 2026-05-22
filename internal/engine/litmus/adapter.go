@@ -3,7 +3,6 @@ package litmus
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ShreyashSri/ChaosCI-Stats/internal/engine"
@@ -25,8 +24,8 @@ func NewAdapter(client dynamic.Interface) *Adapter {
 	}
 }
 
-func (a *Adapter) Apply(ctx context.Context, exp store.Experiment) error {
-	obj, gvr, err := a.parseYaml(exp)
+func (a *Adapter) Apply(ctx context.Context, exp store.Experiment, yamlData []byte) error {
+	obj, gvr, err := a.parseYaml(yamlData)
 	if err != nil {
 		return err
 	}
@@ -48,9 +47,9 @@ func (a *Adapter) Apply(ctx context.Context, exp store.Experiment) error {
 	return err
 }
 
-func (a *Adapter) Watch(ctx context.Context, exp store.Experiment) (<-chan engine.Result, error) {
+func (a *Adapter) Watch(ctx context.Context, exp store.Experiment, yamlData []byte) (<-chan engine.Result, error) {
 	ch := make(chan engine.Result)
-	obj, gvr, err := a.parseYaml(exp)
+	obj, gvr, err := a.parseYaml(yamlData)
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +116,8 @@ func (a *Adapter) Watch(ctx context.Context, exp store.Experiment) (<-chan engin
 	return ch, nil
 }
 
-func (a *Adapter) Cleanup(ctx context.Context, exp store.Experiment) error {
-	obj, gvr, err := a.parseYaml(exp)
+func (a *Adapter) Cleanup(ctx context.Context, exp store.Experiment, yamlData []byte) error {
+	obj, gvr, err := a.parseYaml(yamlData)
 	if err != nil {
 		return err
 	}
@@ -131,13 +130,7 @@ func (a *Adapter) Cleanup(ctx context.Context, exp store.Experiment) error {
 	return a.client.Resource(*gvr).Namespace(namespace).Delete(ctx, obj.GetName(), v1.DeleteOptions{})
 }
 
-func (a *Adapter) parseYaml(exp store.Experiment) (*unstructured.Unstructured, *schema.GroupVersionResource, error) {
-	file := "chaos.yaml"
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read experiment file: %w", err)
-	}
-
+func (a *Adapter) parseYaml(data []byte) (*unstructured.Unstructured, *schema.GroupVersionResource, error) {
 	var obj unstructured.Unstructured
 	if err := yaml.Unmarshal(data, &obj.Object); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse yaml: %w", err)

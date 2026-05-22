@@ -1,0 +1,13 @@
+# Lightweight ChaosMesh values for local/CI environments
+dashboard:
+  create: false
+
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+
+controllerManager:
+  replicaCount: 1
+
+webhook:
+  replicaCount: 1

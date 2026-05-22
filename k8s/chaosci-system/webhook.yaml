@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: chaosci-webhook
+  namespace: chaosci-system
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: chaosci-webhook
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaosci-webhook
+  namespace: chaosci-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaosci-webhook
+  template:
+    metadata:
+      labels:
+        app: chaosci-webhook
+    spec:
+      containers:
+      - name: webhook
+        image: chaosci/webhook:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          value: "postgres://chaos:password@postgres:5432/chaosci?sslmode=disable"
+        - name: WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: chaosci-secrets
+              key: WEBHOOK_SECRET
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: chaosci-secrets
+              key: GITHUB_APP_ID
+        - name: GITHUB_APP_PRIVATE_KEY_PATH
+          value: "/etc/secrets/github-app.pem"
+        volumeMounts:
+        - name: secrets
+          mountPath: /etc/secrets
+          readOnly: true
+      volumes:
+      - name: secrets
+        secret:
+          secretName: chaosci-secrets

@@ -45,6 +45,28 @@ The backend consists of three Go binaries sharing a single repository, communica
 ### Environment Variables
 Local development uses a `.env` file for secrets. Copy `.env.example` to `.env` to override the defaults. The `.env` file is git-ignored.
 
+To test the full end-to-end flow with the GitHub App integration, you must configure the following in your `.env`:
+- `GITHUB_APP_ID`: Your GitHub App ID
+- `GITHUB_APP_PRIVATE_KEY_PATH`: Absolute path to your downloaded GitHub App Private Key (`.pem` file)
+
+## Setting Up the Cluster Engine
+
+To execute chaos tests, you need a supported engine (ChaosMesh or Litmus) installed in your target Kubernetes cluster.
+
+### ChaosMesh Installation (Recommended for Local Testing)
+We provide a minimalistic `values.yaml` in the repository for a lightweight local installation.
+```bash
+helm repo add chaos-mesh https://charts.chaos-mesh.org
+helm install chaos-mesh chaos-mesh/chaos-mesh -n chaos-mesh --create-namespace --values k8s/helm-values/chaos-mesh-values.yaml
+```
+
+### Litmus Installation
+If you prefer Litmus:
+```bash
+helm repo add litmuschaos https://litmuschaos.github.io/litmus-helm/
+helm install chaos litmuschaos/litmus -n litmus --create-namespace --values k8s/helm-values/litmus-values.yaml
+```
+
 ## Dashboard (Frontend)
 
 The frontend is a SvelteKit application located in the `dashboard/` directory.
@@ -68,7 +90,27 @@ The frontend is a SvelteKit application located in the `dashboard/` directory.
 
 To run the full stack and test the flow:
 1. Ensure your Postgres database is running (`make db-up`).
-2. Start the backend services in one terminal (`make dev`).
-3. Start the dashboard in another terminal (`cd dashboard && npm run dev`).
-4. Trigger a webhook by sending a POST request to `http://localhost:8080/webhook` (you can simulate a GitHub payload).
-5. Open the dashboard at `http://localhost:5173`, enter the returned Run ID, and watch the live SSE logs!
+2. Verify you have a valid GitHub App installed on a test repository, and your `.env` is configured with `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_PATH`.
+3. Ensure you have installed your preferred Chaos Engine in your local Kubernetes cluster (see *Setting Up the Cluster Engine*).
+4. Start the backend services in one terminal (`make dev`).
+5. Start the dashboard in another terminal (`cd dashboard && npm run dev`).
+6. In your test repository, commit a `chaos.yaml` and your corresponding Kubernetes manifests (e.g., `pod-kill.yaml`).
+7. Trigger a webhook by sending a POST request to `http://localhost:8080/webhook` using `curl` with a simulated GitHub payload:
+   ```bash
+   curl -X POST http://localhost:8080/webhook \
+     -H "Content-Type: application/json" \
+     -d '{
+           "action": "opened",
+           "pull_request": {
+             "number": 1,
+             "head": {
+               "sha": "your-commit-sha",
+               "repo": {
+                 "full_name": "your-org/your-repo"
+               }
+             }
+           }
+         }'
+   ```
+8. The webhook will create a GitHub CheckRun and queue the job. The worker will pick it up, fetch `chaos.yaml` directly from your test repository, apply the fetched tests against your local cluster, and finally update the GitHub CheckRun with the results.
+9. Open the dashboard at `http://localhost:5173`, enter the returned Run ID, and watch the live SSE logs!
